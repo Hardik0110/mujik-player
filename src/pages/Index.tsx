@@ -1,10 +1,12 @@
+// src/pages/Index.tsx
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import SongsList from "@/components/SongsList";
 import SongDetails from "@/components/SongDetails";
 import MusicPlayer from "@/components/MusicPlayer";
+import SpotifyAuth from "@/components/SpotifyAuth";
 import { Song } from "@/types/song";
-import { generateSpotifyAuthUrl, searchTracks, setAccessToken } from "@/services/spotify";
+import { searchTracks } from "@/services/spotify";
 
 const Index = () => {
   const [search, setSearch] = useState("");
@@ -12,28 +14,25 @@ const Index = () => {
   const [activeSong, setActiveSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    // Check for authentication callback
-    const hash = window.location.hash;
-    if (hash) {
-      const token = hash.substring(1).split("&")[0].split("=")[1];
-      if (token) {
-        setAccessToken(token);
-        setIsAuthenticated(true);
-        window.location.hash = "";
-      }
-    }
-  }, []);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && search) {
+      setIsLoading(true);
       const delayDebounce = setTimeout(async () => {
-        const results = await searchTracks(search);
-        setSongs(results);
+        try {
+          const results = await searchTracks(search);
+          setSongs(results);
+        } catch (error) {
+          console.error("Error searching tracks:", error);
+        } finally {
+          setIsLoading(false);
+        }
       }, 300);
 
       return () => clearTimeout(delayDebounce);
+    } else if (search === "") {
+      setSongs([]);
     }
   }, [search, isAuthenticated]);
 
@@ -43,19 +42,7 @@ const Index = () => {
   };
 
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white to-accent/20">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold mb-6">Welcome to Mujik Player</h1>
-          <a
-            href={generateSpotifyAuthUrl()}
-            className="bg-green-500 text-white px-6 py-3 rounded-full hover:bg-green-600 transition-colors"
-          >
-            Connect with Spotify
-          </a>
-        </div>
-      </div>
-    );
+    return <SpotifyAuth onAuthenticated={setIsAuthenticated} />;
   }
 
   return (
@@ -69,6 +56,7 @@ const Index = () => {
             activeSong={activeSong}
             onSongSelect={handleSongSelect}
             search={search}
+            isLoading={isLoading}
           />
           
           <SongDetails song={activeSong} isPlaying={isPlaying} />

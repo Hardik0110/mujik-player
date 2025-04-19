@@ -1,3 +1,4 @@
+// src/components/MusicPlayer.tsx
 import { useEffect, useRef, useState } from "react";
 import { Song } from "@/types/song";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,13 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { 
+  pausePlayback,
+  playTrack,
+  resumePlayback,
+  seekToPosition,
+  setVolume as setSpotifyVolume
+} from "@/services/spotify";
 
 interface Props {
   song: Song | null;
@@ -39,72 +47,116 @@ const MusicPlayer = ({
   const [volume, setVolume] = useState(0.5);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
   const playerRef = useRef<any>(null);
+  const progressInterval = useRef<number | null>(null);
 
   useEffect(() => {
-    const token = window.location.hash
-      .substring(1)
-      .split("&")[0]
-      .split("=")[1];
+    // Initialize Spotify Web Playback SDK
+    const script = document.createElement("script");
+    script.src = "https://sdk.scdn.co/spotify-player.js";
+    script.async = true;
+    document.body.appendChild(script);
 
-    if (token && window.Spotify) {
-      const player = new window.Spotify.Player({
-        name: "Mujik Player",
-        getOAuthToken: (cb: (token: string) => void) => cb(token),
-        volume: 0.5,
-      });
+    window.onSpotifyWebPlaybackSDKReady = () => {
+      const token = window.localStorage.getItem('spotify_access_token');
+      
+      if (token) {
+        const player = new window.Spotify.Player({
+          name: "Mujik Player",
+          getOAuthToken: (cb: (token: string) => void) => cb(token),
+          volume: volume,
+        });
 
-      player.addListener("ready", ({ device_id }: { device_id: string }) => {
-        console.log("Ready with Device ID", device_id);
-        playerRef.current = player;
-      });
+        player.addListener("ready", ({ device_id }: { device_id: string }) => {
+          console.log("Ready with Device ID", device_id);
+          setDeviceId(device_id);
+          playerRef.current = player;
+        });
 
-      player.addListener("player_state_changed", (state: any) => {
-        if (state) {
-          setProgress(state.position);
-          setDuration(state.duration);
-          setIsPlaying(!state.paused);
-        }
-      });
+        player.addListener("player_state_changed", (state: any) => {
+          if (state) {
+            setProgress(state.position);
+            setDuration(state.duration);
+            setIsPlaying(!state.paused);
+            
+            // Update song if changed via Spotify controls
+            if (state.track_window.current_track) {
+              const currentTrackId = state.track_window.current_track.id;
+              if (song?.id !== currentTrackId) {
+                const newSong = songs.find(s => s.id === currentTrackId);
+                if (newSong) {
+                  onSelectSong(newSong);
+                }
+              }
+            }
+          }
+        });
 
-      player.connect();
-      window.player = player;
-    }
+        player.addListener("not_ready", ({ device_id }: { device_id: string }) => {
+          console.log("Device ID has gone offline", device_id);
+        });
+
+        player.connect().then((success: boolean) => {
+          if (success) {
+            console.log("The Web Playback SDK successfully connected to Spotify!");
+          }
+        });
+
+        window.player = player;
+      }
+    };
 
     return () => {
       if (playerRef.current) {
         playerRef.current.disconnect();
       }
+      if (progressInterval.current) {
+        window.clearInterval(progressInterval.current);
+      }
+      document.body.removeChild(script);
     };
   }, []);
 
+  // Set up progress interval for smoother progress updates
   useEffect(() => {
-    if (song && playerRef.current) {
-      fetch(`https://api.spotify.com/v1/me/player/play`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${window.location.hash
-            .substring(1)
-            .split("&")[0]
-            .split("=")[1]}`,
-        },
-        body: JSON.stringify({
-          uris: [song.uri],
-        }),
-      });
+    if (isPlaying) {
+      progressInterval.current = window.setInterval(() => {
+        setProgress(prev => Math.min(prev + 1000, duration));
+      }, 1000);
+    } else if (progressInterval.current) {
+      window.clearInterval(progressInterval.current);
     }
-  }, [song]);
+
+    return () => {
+      if (progressInterval.current) {
+        window.clearInterval(progressInterval.current);
+      }
+    };
+  }, [isPlaying, duration]);
+
+  // Handle playing a song
+  useEffect(() => {
+    if (song && deviceId) {
+      playTrack(song.uri, deviceId);
+      setIsPlaying(true);
+    }
+  }, [song, deviceId]);
 
   const togglePlayPause = () => {
-    if (playerRef.current) {
-      playerRef.current.togglePlay();
+    if (isPlaying) {
+      pausePlayback();
+      setIsPlaying(false);
+    } else {
+      resumePlayback();
+      setIsPlaying(true);
     }
   };
 
   const handleVolumeChange = (value: number[]) => {
     const newVolume = value[0];
     setVolume(newVolume);
+    setSpotifyVolume(newVolume);
     if (playerRef.current) {
       playerRef.current.setVolume(newVolume);
     }
@@ -112,8 +164,10 @@ const MusicPlayer = ({
 
   const handleProgressChange = (value: number[]) => {
     const newPosition = value[0];
-    if (playerRef.current && duration) {
-      playerRef.current.seek(newPosition * duration);
+    if (duration) {
+      const positionMs = Math.floor(newPosition * duration);
+      setProgress(positionMs);
+      seekToPosition(positionMs);
     }
   };
 
