@@ -1,173 +1,218 @@
-
-import { useState, useEffect, useRef } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState } from "react";
 import { Song } from "@/types/song";
+import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { formatTime } from "@/lib/utils";
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 
-interface MusicPlayerProps {
+interface Props {
   song: Song | null;
   songs: Song[];
   isPlaying: boolean;
-  setIsPlaying: (isPlaying: boolean) => void;
+  setIsPlaying: (playing: boolean) => void;
   onSelectSong: (song: Song) => void;
 }
 
-export const MusicPlayer = ({
+declare global {
+  interface Window {
+    Spotify: any;
+    onSpotifyWebPlaybackSDKReady: () => void;
+    player: any;
+  }
+}
+
+const MusicPlayer = ({
   song,
   songs,
   isPlaying,
   setIsPlaying,
   onSelectSong,
-}: MusicPlayerProps) => {
-  const [currentTime, setCurrentTime] = useState(0);
+}: Props) => {
+  const [volume, setVolume] = useState(0.5);
+  const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(80);
-  
-  const progressInterval = useRef<number | null>(null);
+  const playerRef = useRef<any>(null);
 
   useEffect(() => {
-    // Reset current time when a new song is selected
-    if (song) {
-      setCurrentTime(0);
-      setDuration(100); // In a real app, this would be the actual song duration
-      
-      // Auto-play when a song is selected
-      setIsPlaying(true);
-    }
-  }, [song, setIsPlaying]);
+    const token = window.location.hash
+      .substring(1)
+      .split("&")[0]
+      .split("=")[1];
 
-  useEffect(() => {
-    // Simulate song progress
-    if (isPlaying && song) {
-      if (progressInterval.current) {
-        clearInterval(progressInterval.current);
-      }
-      
-      progressInterval.current = window.setInterval(() => {
-        setCurrentTime((prev) => {
-          if (prev >= duration) {
-            handleNext();
-            return 0;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } else {
-      if (progressInterval.current) {
-        clearInterval(progressInterval.current);
-        progressInterval.current = null;
-      }
+    if (token && window.Spotify) {
+      const player = new window.Spotify.Player({
+        name: "Mujik Player",
+        getOAuthToken: (cb: (token: string) => void) => cb(token),
+        volume: 0.5,
+      });
+
+      player.addListener("ready", ({ device_id }: { device_id: string }) => {
+        console.log("Ready with Device ID", device_id);
+        playerRef.current = player;
+      });
+
+      player.addListener("player_state_changed", (state: any) => {
+        if (state) {
+          setProgress(state.position);
+          setDuration(state.duration);
+          setIsPlaying(!state.paused);
+        }
+      });
+
+      player.connect();
+      window.player = player;
     }
-    
+
     return () => {
-      if (progressInterval.current) {
-        clearInterval(progressInterval.current);
-        progressInterval.current = null;
+      if (playerRef.current) {
+        playerRef.current.disconnect();
       }
     };
-  }, [isPlaying, duration, song]);
+  }, []);
 
-  const handlePlayPause = () => {
-    setIsPlaying(!isPlaying);
+  useEffect(() => {
+    if (song && playerRef.current) {
+      fetch(`https://api.spotify.com/v1/me/player/play`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${window.location.hash
+            .substring(1)
+            .split("&")[0]
+            .split("=")[1]}`,
+        },
+        body: JSON.stringify({
+          uris: [song.uri],
+        }),
+      });
+    }
+  }, [song]);
+
+  const togglePlayPause = () => {
+    if (playerRef.current) {
+      playerRef.current.togglePlay();
+    }
   };
 
-  const handlePrevious = () => {
-    if (!song || songs.length === 0) return;
-    
-    const currentIndex = songs.findIndex((s) => s.id === song.id);
-    const prevIndex = currentIndex > 0 ? currentIndex - 1 : songs.length - 1;
-    onSelectSong(songs[prevIndex]);
+  const handleVolumeChange = (value: number[]) => {
+    const newVolume = value[0];
+    setVolume(newVolume);
+    if (playerRef.current) {
+      playerRef.current.setVolume(newVolume);
+    }
   };
 
-  const handleNext = () => {
-    if (!song || songs.length === 0) return;
-    
-    const currentIndex = songs.findIndex((s) => s.id === song.id);
-    const nextIndex = currentIndex < songs.length - 1 ? currentIndex + 1 : 0;
-    onSelectSong(songs[nextIndex]);
+  const handleProgressChange = (value: number[]) => {
+    const newPosition = value[0];
+    if (playerRef.current && duration) {
+      playerRef.current.seek(newPosition * duration);
+    }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const playPreviousSong = () => {
+    if (song && songs.length > 0) {
+      const currentIndex = songs.findIndex((s) => s.id === song.id);
+      const previousSong = songs[currentIndex - 1] || songs[songs.length - 1];
+      onSelectSong(previousSong);
+    }
+  };
+
+  const playNextSong = () => {
+    if (song && songs.length > 0) {
+      const currentIndex = songs.findIndex((s) => s.id === song.id);
+      const nextSong = songs[currentIndex + 1] || songs[0];
+      onSelectSong(nextSong);
+    }
+  };
+
+  const getVolumeIcon = () => {
+    if (volume === 0) return <VolumeX size={20} />;
+    if (volume < 0.5) return <Volume1 size={20} />;
+    return <Volume2 size={20} />;
   };
 
   return (
-    <div className="bg-primary-gradient text-white p-4 rounded-lg shadow-lg">
-      <div className="flex flex-col md:flex-row items-center gap-4">
-        <div className="flex-shrink-0 flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-            onClick={handlePrevious}
-            disabled={!song}
-          >
-            <SkipBack size={20} />
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="icon"
-            className="bg-white text-primary hover:bg-white/90 hover:text-primary rounded-full w-12 h-12 flex items-center justify-center"
-            onClick={handlePlayPause}
-            disabled={!song}
-          >
-            {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
-          </Button>
-          
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-            onClick={handleNext}
-            disabled={!song}
-          >
-            <SkipForward size={20} />
-          </Button>
+    <div className="bg-white/10 backdrop-blur-lg border rounded-lg p-4 w-full">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 flex-1">
+          {song && (
+            <img
+              src={song.cover || "/placeholder.svg"}
+              alt={song.title}
+              className="w-16 h-16 rounded-md object-cover"
+            />
+          )}
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold truncate">
+              {song?.title || "No song selected"}
+            </h3>
+            <p className="text-sm text-muted-foreground truncate">
+              {song?.artist || "---"}
+            </p>
+          </div>
         </div>
-        
-        <div className="flex-grow w-full">
-          <div className="flex justify-between text-xs mb-1">
-            <span>{formatTime(currentTime)}</span>
-            <span>{song ? song.duration : "0:00"}</span>
+
+        <div className="flex flex-col items-center gap-2 flex-1">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={playPreviousSong}
+              disabled={!song}
+            >
+              <SkipBack size={20} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={togglePlayPause}
+              disabled={!song}
+            >
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={playNextSong}
+              disabled={!song}
+            >
+              <SkipForward size={20} />
+            </Button>
           </div>
-          
+          <div className="flex items-center gap-2 w-full max-w-md">
+            <span className="text-sm tabular-nums">
+              {formatTime(progress)}
+            </span>
+            <Slider
+              value={[progress / (duration || 1)]}
+              onValueChange={handleProgressChange}
+              max={1}
+              step={0.001}
+              className="flex-1"
+            />
+            <span className="text-sm tabular-nums">
+              {formatTime(duration)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-1 justify-end">
+          {getVolumeIcon()}
           <Slider
-            value={[currentTime]}
-            max={duration}
-            step={1}
-            disabled={!song}
-            onValueChange={(value) => setCurrentTime(value[0])}
-            className="cursor-pointer"
+            value={[volume]}
+            onValueChange={handleVolumeChange}
+            max={1}
+            step={0.01}
+            className="w-24"
           />
-          
-          <div className="flex items-center mt-1">
-            {song ? (
-              <div className="flex-grow">
-                <p className="text-sm font-medium truncate">{song.title}</p>
-                <p className="text-xs text-secondary truncate">{song.artist}</p>
-              </div>
-            ) : (
-              <div className="flex-grow">
-                <p className="text-sm font-medium">Select a song</p>
-                <p className="text-xs text-secondary">from the library</p>
-              </div>
-            )}
-            
-            <div className="hidden md:flex items-center ml-4 space-x-2 min-w-[120px]">
-              <Volume2 size={16} className="text-secondary" />
-              <Slider
-                value={[volume]}
-                max={100}
-                step={1}
-                onValueChange={(value) => setVolume(value[0])}
-                className="w-20"
-              />
-            </div>
-          </div>
         </div>
       </div>
     </div>

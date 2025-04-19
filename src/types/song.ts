@@ -1,10 +1,10 @@
-
 export interface Song {
-  id: number;
+  id: string;
   title: string;
   artist: string;
   album: string;
-  duration: string;
-  year: number;
-  imageUrl?: string;
+  duration: number;
+  cover: string;
+  previewUrl: string | null;
+  uri: string;
 }

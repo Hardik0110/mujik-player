@@ -1,21 +1,62 @@
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import SongsList from "@/components/SongsList";
 import SongDetails from "@/components/SongDetails";
 import MusicPlayer from "@/components/MusicPlayer";
-import { songs } from "@/data/songs";
 import { Song } from "@/types/song";
+import { generateSpotifyAuthUrl, searchTracks, setAccessToken } from "@/services/spotify";
 
 const Index = () => {
   const [search, setSearch] = useState("");
+  const [songs, setSongs] = useState<Song[]>([]);
   const [activeSong, setActiveSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check for authentication callback
+    const hash = window.location.hash;
+    if (hash) {
+      const token = hash.substring(1).split("&")[0].split("=")[1];
+      if (token) {
+        setAccessToken(token);
+        setIsAuthenticated(true);
+        window.location.hash = "";
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && search) {
+      const delayDebounce = setTimeout(async () => {
+        const results = await searchTracks(search);
+        setSongs(results);
+      }, 300);
+
+      return () => clearTimeout(delayDebounce);
+    }
+  }, [search, isAuthenticated]);
 
   const handleSongSelect = (song: Song) => {
     setActiveSong(song);
     setIsPlaying(true);
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white to-accent/20">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold mb-6">Welcome to Mujik Player</h1>
+          <a
+            href={generateSpotifyAuthUrl()}
+            className="bg-green-500 text-white px-6 py-3 rounded-full hover:bg-green-600 transition-colors"
+          >
+            Connect with Spotify
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-white to-accent/20">
