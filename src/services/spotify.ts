@@ -4,7 +4,8 @@ import { Song } from '@/types/song';
 import { handleSpotifyError } from '@/lib/spotify-utils';
 
 const CLIENT_ID = 'f29485f82aba428f9f058c89fa168371';
-const REDIRECT_URI = 'https://localhost:8080/callback';
+// Updated to use explicit IPv4 loopback address
+const REDIRECT_URI = 'http://127.0.0.1:8080/callback';
 
 const spotifyApi = new SpotifyWebApi({
   clientId: CLIENT_ID,
