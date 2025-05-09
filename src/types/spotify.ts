@@ -4,8 +4,12 @@ export interface WebPlaybackPlayer {
   getOAuthToken(cb: (token: string) => void): void;
   connect(): Promise<boolean>;
   disconnect(): void;
-  addListener(event: string, callback: Function): void;
-  removeListener(event: string, callback: Function): void;
+  addListener(event: 'ready', callback: (data: { device_id: string }) => void): void;
+  addListener(event: 'not_ready', callback: (data: { device_id: string }) => void): void;
+  addListener(event: 'player_state_changed', callback: (state: WebPlaybackState | null) => void): void;
+  addListener(event: 'authentication_error', callback: (data: { message: string }) => void): void;
+  addListener(event: 'account_error', callback: (data: { message: string }) => void): void;
+  removeListener(event: 'ready' | 'not_ready' | 'player_state_changed', callback: (state: WebPlaybackState | null) => void): void;
   getCurrentState(): Promise<WebPlaybackState | null>;
   setName(name: string): Promise<void>;
   getVolume(): Promise<number>;
@@ -21,7 +25,7 @@ export interface WebPlaybackPlayer {
 export interface WebPlaybackState {
   context: {
     uri: string;
-    metadata: any;
+    metadata: Record<string, unknown>;
   };
   disallows: {
     pausing: boolean;

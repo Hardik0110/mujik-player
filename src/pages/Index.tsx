@@ -6,6 +6,7 @@ import MusicPlayer from "@/components/MusicPlayer";
 import SpotifyAuth from "@/components/SpotifyAuth";
 import { Song } from "@/types/song";
 import { searchTracks, setAccessToken } from "@/services/spotify";
+import { useToast } from "@/components/ui/use-toast";
 
 interface IndexProps {
   isAuthenticated: boolean;
@@ -13,12 +14,13 @@ interface IndexProps {
 }
 
 const Index = ({ isAuthenticated, onAuthChange }: IndexProps) => {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [songs, setSongs] = useState<Song[]>([]);
   const [activeSong, setActiveSong] = useState<Song | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);  const [isLoading, setIsLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Initialize Spotify token on component mount
   useEffect(() => {
     const token = localStorage.getItem('spotify_access_token');
     if (token) {
@@ -35,11 +37,16 @@ const Index = ({ isAuthenticated, onAuthChange }: IndexProps) => {
           if (!token) {
             throw new Error('No access token found');
           }
-          setAccessToken(token); // Ensure token is set before search
+          setAccessToken(token);
           const results = await searchTracks(search);
           setSongs(results);
         } catch (error) {
           console.error("Error searching tracks:", error);
+          toast({
+            variant: "destructive",
+            title: "Search Error",
+            description: "Failed to search for tracks. Please try again.",
+          });
         } finally {
           setIsLoading(false);
         }
@@ -49,7 +56,7 @@ const Index = ({ isAuthenticated, onAuthChange }: IndexProps) => {
     } else if (search === "") {
       setSongs([]);
     }
-  }, [search, isAuthenticated]);
+  }, [search, isAuthenticated, toast]);
 
   const handleSongSelect = (song: Song) => {
     setActiveSong(song);
@@ -61,11 +68,13 @@ const Index = ({ isAuthenticated, onAuthChange }: IndexProps) => {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-white to-accent/20">
+    <div className="h-screen flex flex-col relative overflow-hidden">
+      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#1db954]/30 via-fuchsia-500/20 to-sky-500/30 animate-[gradientShift_15s_ease_infinite] bg-[length:400%_400%]" />
+      
       <Header search={search} setSearch={setSearch} />
       
-      <main className="flex-1 container mx-auto px-4 md:px-6 py-6 min-h-0">
-        <div className="h-full grid grid-cols-1 md:grid-cols-2 gap-6">
+      <main className="flex-1 container mx-auto px-2 py-2 overflow-hidden flex flex-col">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 overflow-hidden">
           <SongsList
             songs={songs}
             activeSong={activeSong}
@@ -73,22 +82,19 @@ const Index = ({ isAuthenticated, onAuthChange }: IndexProps) => {
             search={search}
             isLoading={isLoading}
           />
-          
           <SongDetails song={activeSong} isPlaying={isPlaying} />
         </div>
       </main>
-      
-      <footer className="px-4 md:px-6 pb-4 pt-0">
-        <div className="container mx-auto">
-          <MusicPlayer
-            song={activeSong}
-            songs={songs}
-            isPlaying={isPlaying}
-            setIsPlaying={setIsPlaying}
-            onSelectSong={setActiveSong}
-          />
-        </div>
-      </footer>
+
+      <div className="px-2 pb-2">
+        <MusicPlayer
+          song={activeSong}
+          songs={songs}
+          isPlaying={isPlaying}
+          setIsPlaying={setIsPlaying}
+          onSelectSong={setActiveSong}
+        />
+      </div>
     </div>
   );
 };

@@ -1,4 +1,3 @@
-// src/components/MusicPlayer.tsx
 import { useEffect, useRef, useState } from "react";
 import { Song } from "@/types/song";
 import { WebPlaybackPlayer, WebPlaybackState } from "@/types/spotify";
@@ -46,12 +45,18 @@ const MusicPlayer = ({
   const [isReady, setIsReady] = useState(false);
   const playerRef = useRef<WebPlaybackPlayer | null>(null);
   const progressInterval = useRef<number | null>(null);
+  const volumeChangeTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize Spotify Web Playback SDK
   useEffect(() => {
     const initializePlayer = async () => {
       const token = window.localStorage.getItem('spotify_access_token');
       if (!token) return;
+
+      // Prevent multiple initializations
+      if (playerRef.current) {
+        playerRef.current.disconnect();
+      }
 
       const player = new window.Spotify.Player({
         name: "Mujik Player",
@@ -70,8 +75,6 @@ const MusicPlayer = ({
         }
         originalError.apply(console, args);
       };
-
-     
 
       player.addListener('authentication_error', ({ message }: { message: string }) => {
         console.error('Failed to authenticate:', message);
@@ -111,7 +114,7 @@ const MusicPlayer = ({
           setDuration(state.duration);
           setIsPlaying(!state.paused);
           
-          // Update song if changed via Spotify controls
+          // Update song if changed via Spotify controls  
           if (state.track_window?.current_track) {
             const currentTrackId = state.track_window.current_track.id;
             if (song?.id !== currentTrackId) {
@@ -124,8 +127,17 @@ const MusicPlayer = ({
         }
       });
 
-      await player.connect();
-      console.log("Player connected!");
+      try {
+        await player.connect();
+        console.log("Player connected!");
+      } catch (error) {
+        console.error("Failed to connect player:", error);
+        toast({
+          variant: "destructive",
+          title: "Playback Error",
+          description: "Failed to initialize Spotify player. Please refresh the page.",
+        });
+      }
     };
 
     if (window.Spotify) {
@@ -148,14 +160,27 @@ const MusicPlayer = ({
       if (progressInterval.current) {
         window.clearInterval(progressInterval.current);
       }
+      if (volumeChangeTimeout.current) {
+        clearTimeout(volumeChangeTimeout.current);
+      }
     };
-  }, [volume, songs, song?.id, onSelectSong, setIsPlaying, toast]);
+  }, [toast]);
 
   // Set up progress interval for smoother progress updates
   useEffect(() => {
     if (isPlaying) {
+      if (progressInterval.current) {
+        window.clearInterval(progressInterval.current);
+      }
+      
       progressInterval.current = window.setInterval(() => {
-        setProgress(prev => Math.min(prev + 1000, duration));
+        setProgress(prev => {
+          // Don't exceed duration
+          if (prev >= duration) {
+            return duration;
+          }
+          return prev + 1000;
+        });
       }, 1000);
     } else if (progressInterval.current) {
       window.clearInterval(progressInterval.current);
@@ -168,6 +193,7 @@ const MusicPlayer = ({
     };
   }, [isPlaying, duration]);
 
+  // Handle song changes and playback
   useEffect(() => {
     const startPlayback = async () => {
       if (song && deviceId && isReady) {
@@ -176,30 +202,64 @@ const MusicPlayer = ({
           setIsPlaying(true);
         } catch (error) {
           console.error('Playback error:', error);
+          toast({
+            variant: "destructive",
+            title: "Playback Error",
+            description: "Failed to play track. Please try again.",
+          });
         }
       }
     };
 
-    startPlayback();
+    if (song && deviceId && isReady) {
+      startPlayback();
+    }
   }, [song, deviceId, isReady, setIsPlaying, toast]);
 
-  const togglePlayPause = () => {
-    if (isPlaying) {
-      pausePlayback();
-      setIsPlaying(false);
-    } else {
-      resumePlayback();
-      setIsPlaying(true);
+  // Update player volume when volume state changes
+  useEffect(() => {
+    if (playerRef.current && isReady) {
+      try {
+        playerRef.current.setVolume(volume);
+      } catch (error) {
+        console.error('Volume setting error:', error);
+      }
+    }
+  }, [volume, isReady]);
+
+  const togglePlayPause = async () => {
+    try {
+      if (isPlaying) {
+        await pausePlayback();
+        setIsPlaying(false);
+      } else {
+        await resumePlayback();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Toggle play/pause error:', error);
+      toast({
+        variant: "destructive",
+        title: "Playback Error",
+        description: "Failed to toggle playback. Please try again.",
+      });
     }
   };
 
   const handleVolumeChange = (value: number[]) => {
     const newVolume = value[0];
     setVolume(newVolume);
-    setSpotifyVolume(newVolume);
-    if (playerRef.current) {
-      playerRef.current.setVolume(newVolume);
+    
+    // Debounce volume API calls to prevent playback issues
+    if (volumeChangeTimeout.current) {
+      clearTimeout(volumeChangeTimeout.current);
     }
+    
+    volumeChangeTimeout.current = setTimeout(() => {
+      setSpotifyVolume(newVolume).catch(error => {
+        console.error('Set volume error:', error);
+      });
+    }, 200);
   };
 
   const handleProgressChange = (value: number[]) => {
@@ -207,7 +267,15 @@ const MusicPlayer = ({
     if (duration) {
       const positionMs = Math.floor(newPosition * duration);
       setProgress(positionMs);
-      seekToPosition(positionMs);
+      
+      seekToPosition(positionMs).catch(error => {
+        console.error('Seek position error:', error);
+        toast({
+          variant: "destructive",
+          title: "Playback Error",
+          description: "Failed to seek to position. Please try again.",
+        });
+      });
     }
   };
 
@@ -234,78 +302,81 @@ const MusicPlayer = ({
   };
 
   return (
-    <div className="bg-white/10 backdrop-blur-lg border rounded-lg p-4 w-full">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 flex-1">
+    <div className="bg-white/10 backdrop-blur-lg border rounded-lg p-3 w-full">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           {song && (
             <img
               src={song.cover || "/placeholder.svg"}
               alt={song.title}
-              className="w-16 h-16 rounded-md object-cover"
+              className="w-12 h-12 rounded-md object-cover"
             />
           )}
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold truncate">
+            <h3 className="text-base font-semibold truncate">
               {song?.title || "No song selected"}
             </h3>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-xs text-muted-foreground truncate">
               {song?.artist || "---"}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-2 flex-1">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col items-center gap-1 flex-1">
+          <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={playPreviousSong}
               disabled={!song}
+              className="h-8 w-8 p-0"
             >
-              <SkipBack size={20} />
+              <SkipBack size={16} />
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={togglePlayPause}
               disabled={!song}
+              className="h-8 w-8 p-0"
             >
-              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+              {isPlaying ? <Pause size={16} /> : <Play size={16} />}
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={playNextSong}
               disabled={!song}
+              className="h-8 w-8 p-0"
             >
-              <SkipForward size={20} />
+              <SkipForward size={16} />
             </Button>
           </div>
-          <div className="flex items-center gap-2 w-full max-w-md">
-            <span className="text-sm tabular-nums">
+          <div className="flex items-center gap-1 w-full max-w-md">
+            <span className="text-xs tabular-nums w-10">
               {formatTime(progress)}
             </span>
             <Slider
-              value={[progress / (duration || 1)]}
+              value={[duration > 0 ? progress / duration : 0]}
               onValueChange={handleProgressChange}
               max={1}
               step={0.001}
               className="flex-1"
             />
-            <span className="text-sm tabular-nums">
+            <span className="text-xs tabular-nums w-10">
               {formatTime(duration)}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-1 justify-end">
+        <div className="flex items-center gap-1 flex-1 justify-end">
           {getVolumeIcon()}
           <Slider
             value={[volume]}
             onValueChange={handleVolumeChange}
             max={1}
             step={0.01}
-            className="w-24"
+            className="w-20"
           />
         </div>
       </div>

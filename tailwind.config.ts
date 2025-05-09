@@ -19,6 +19,9 @@ export default {
 			}
 		},
 		extend: {
+			animation: {
+				gradientShift: "gradientShift 15s ease infinite",
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -74,6 +77,11 @@ export default {
 				sm: 'calc(var(--radius) - 4px)'
 			},
 			keyframes: {
+				gradientShift: {
+					"0%": { backgroundPosition: "0% 50%" },
+					"50%": { backgroundPosition: "100% 50%" },
+					"100%": { backgroundPosition: "0% 50%" },
+					},
 				'accordion-down': {
 					from: {
 						height: '0'
@@ -99,12 +107,6 @@ export default {
 					'100%': { transform: 'rotate(360deg)' }
 				}
 			},
-			animation: {
-				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out',
-				'pulse-light': 'pulse-light 2s infinite',
-				'spin-slow': 'spin-slow 10s linear infinite'
-			}
 		}
 	},
 	plugins: [tailwindAnimate]
