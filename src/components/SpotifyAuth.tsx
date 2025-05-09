@@ -1,44 +1,56 @@
-// src/components/SpotifyAuth.tsx
-import { useEffect } from 'react';
-import { generateSpotifyAuthUrl, setAccessToken } from '@/services/spotify';
+import { useState } from 'react';
+import { generateSpotifyAuthUrl } from '@/services/spotify';
+import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 
 interface SpotifyAuthProps {
   onAuthenticated: (authenticated: boolean) => void;
 }
 
 const SpotifyAuth = ({ onAuthenticated }: SpotifyAuthProps) => {
-  useEffect(() => {
-    // Check for authentication callback
-    const hash = window.location.hash;
-    if (hash) {
-      const token = hash.substring(1).split("&")[0].split("=")[1];
-      if (token) {
-        setAccessToken(token);
-        onAuthenticated(true);
-        window.localStorage.setItem('spotify_access_token', token);
-        window.location.hash = "";
-      }
-    } else {
-      // Check if we have a stored token
-      const storedToken = window.localStorage.getItem('spotify_access_token');
-      if (storedToken) {
-        setAccessToken(storedToken);
-        onAuthenticated(true);
-      }
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSpotifyConnect = async () => {
+    try {
+      setIsLoading(true);
+      const url = await generateSpotifyAuthUrl();
+      window.location.href = url;
+    } catch (error) {
+      console.error('Failed to generate auth URL:', error);
+      toast({
+        variant: "destructive",
+        title: "Connection Failed",
+        description: "Unable to connect to Spotify. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
     }
-  }, [onAuthenticated]);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white to-accent/20">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-6">Welcome to Mujik Player</h1>
-        <p className="text-lg mb-6">Connect with Spotify to start listening to your favorite music</p>
-        <a
-          href={generateSpotifyAuthUrl()}
-          className="bg-green-500 text-white px-6 py-3 rounded-full hover:bg-green-600 transition-colors"
+      <div className="text-center space-y-6">
+        <h1 className="text-4xl font-bold">Welcome to Mujik Player</h1>
+        <p className="text-lg text-muted-foreground">
+          Connect with Spotify to start listening to your favorite music
+        </p>
+        <Button
+          size="lg"
+          onClick={handleSpotifyConnect}
+          disabled={isLoading}
+          className="bg-green-500 hover:bg-green-600 text-white"
         >
-          Connect with Spotify
-        </a>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Connecting...
+            </>
+          ) : (
+            'Connect with Spotify'
+          )}
+        </Button>
       </div>
     </div>
   );

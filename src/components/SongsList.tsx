@@ -29,7 +29,7 @@ const SongsList = ({ songs, activeSong, onSongSelect, search, isLoading = false 
   }, [search, songs]);
 
   return (
-    <div className="bg-white/5 backdrop-blur-lg border rounded-lg p-4 h-full overflow-y-auto">
+    <div className="bg-white/5 backdrop-blur-lg border rounded-lg p-4 h-full overflow-y-hidden">
       <h2 className="text-xl font-semibold mb-4">Songs</h2>
       
       {isLoading ? (
@@ -37,7 +37,7 @@ const SongsList = ({ songs, activeSong, onSongSelect, search, isLoading = false 
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-[300px] overflow-y-auto">
           {filteredSongs.length === 0 && (
             <p className="text-muted-foreground text-center py-4">
               {search ? "No songs found" : "Search for songs to play"}

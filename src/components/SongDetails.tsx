@@ -9,7 +9,7 @@ interface Props {
 const SongDetails = ({ song, isPlaying }: Props) => {
   if (!song) {
     return (
-      <div className="bg-white/5 backdrop-blur-lg border rounded-lg p-4 flex items-center justify-center h-[300px]">
+      <div className="bg-white/5 backdrop-blur-lg border rounded-lg p-4 flex items-center justify-center h-[100px]">
         <p className="text-muted-foreground">Select a song to view details</p>
       </div>
     );

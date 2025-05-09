@@ -1,8 +1,10 @@
 // src/components/MusicPlayer.tsx
 import { useEffect, useRef, useState } from "react";
 import { Song } from "@/types/song";
+import { WebPlaybackPlayer, WebPlaybackState } from "@/types/spotify";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { useToast } from "@/components/ui/use-toast";
 import { formatTime } from "@/lib/utils";
 import {
   Play,
@@ -29,14 +31,6 @@ interface Props {
   onSelectSong: (song: Song) => void;
 }
 
-declare global {
-  interface Window {
-    Spotify: any;
-    onSpotifyWebPlaybackSDKReady: () => void;
-    player: any;
-  }
-}
-
 const MusicPlayer = ({
   song,
   songs,
@@ -44,68 +38,108 @@ const MusicPlayer = ({
   setIsPlaying,
   onSelectSong,
 }: Props) => {
+  const { toast } = useToast();
   const [volume, setVolume] = useState(0.5);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const playerRef = useRef<any>(null);
+  const [isReady, setIsReady] = useState(false);
+  const playerRef = useRef<WebPlaybackPlayer | null>(null);
   const progressInterval = useRef<number | null>(null);
 
+  // Initialize Spotify Web Playback SDK
   useEffect(() => {
-    // Initialize Spotify Web Playback SDK
-    const script = document.createElement("script");
-    script.src = "https://sdk.scdn.co/spotify-player.js";
-    script.async = true;
-    document.body.appendChild(script);
-
-    window.onSpotifyWebPlaybackSDKReady = () => {
+    const initializePlayer = async () => {
       const token = window.localStorage.getItem('spotify_access_token');
-      
-      if (token) {
-        const player = new window.Spotify.Player({
-          name: "Mujik Player",
-          getOAuthToken: (cb: (token: string) => void) => cb(token),
-          volume: volume,
-        });
+      if (!token) return;
 
-        player.addListener("ready", ({ device_id }: { device_id: string }) => {
-          console.log("Ready with Device ID", device_id);
-          setDeviceId(device_id);
-          playerRef.current = player;
-        });
+      const player = new window.Spotify.Player({
+        name: "Mujik Player",
+        getOAuthToken: (cb: (token: string) => void) => cb(token),
+        volume: volume,
+      });
 
-        player.addListener("player_state_changed", (state: any) => {
-          if (state) {
-            setProgress(state.position);
-            setDuration(state.duration);
-            setIsPlaying(!state.paused);
-            
-            // Update song if changed via Spotify controls
-            if (state.track_window.current_track) {
-              const currentTrackId = state.track_window.current_track.id;
-              if (song?.id !== currentTrackId) {
-                const newSong = songs.find(s => s.id === currentTrackId);
-                if (newSong) {
-                  onSelectSong(newSong);
-                }
+      // Intercept console errors to handle the PlayLoad 404 gracefully
+      const originalError = console.error;
+      console.error = (...args) => {
+        const errorMessage = args.join(' ');
+        if (errorMessage.includes('PlayLoad event failed with status 404') ||
+            errorMessage.includes('/event/item_before_load 404')) {
+          // Silently ignore this specific error as it's expected behavior
+          return;
+        }
+        originalError.apply(console, args);
+      };
+
+     
+
+      player.addListener('authentication_error', ({ message }: { message: string }) => {
+        console.error('Failed to authenticate:', message);
+        toast({
+          variant: "destructive",
+          title: "Authentication Error",
+          description: "Please try logging in again.",
+        });
+        window.localStorage.removeItem('spotify_access_token');
+        window.location.href = '/';
+      });
+
+      player.addListener('account_error', ({ message }: { message: string }) => {
+        console.error('Failed to validate Spotify account:', message);
+        toast({
+          variant: "destructive",
+          title: "Premium Required",
+          description: "Spotify Premium is required for playback.",
+        });
+      });
+
+      player.addListener("ready", ({ device_id }: { device_id: string }) => {
+        console.log("Ready with Device ID", device_id);
+        setDeviceId(device_id);
+        setIsReady(true);
+        playerRef.current = player;
+      });
+
+      player.addListener("not_ready", ({ device_id }: { device_id: string }) => {
+        console.log("Device ID has gone offline", device_id);
+        setIsReady(false);
+      });
+
+      player.addListener("player_state_changed", (state: WebPlaybackState | null) => {
+        if (state) {
+          setProgress(state.position);
+          setDuration(state.duration);
+          setIsPlaying(!state.paused);
+          
+          // Update song if changed via Spotify controls
+          if (state.track_window?.current_track) {
+            const currentTrackId = state.track_window.current_track.id;
+            if (song?.id !== currentTrackId) {
+              const newSong = songs.find(s => s.id === currentTrackId);
+              if (newSong) {
+                onSelectSong(newSong);
               }
             }
           }
-        });
+        }
+      });
 
-        player.addListener("not_ready", ({ device_id }: { device_id: string }) => {
-          console.log("Device ID has gone offline", device_id);
-        });
-
-        player.connect().then((success: boolean) => {
-          if (success) {
-            console.log("The Web Playback SDK successfully connected to Spotify!");
-          }
-        });
-
-        window.player = player;
-      }
+      await player.connect();
+      console.log("Player connected!");
     };
+
+    if (window.Spotify) {
+      initializePlayer();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://sdk.scdn.co/spotify-player.js";
+      script.async = true;
+      document.body.appendChild(script);
+
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        initializePlayer();
+      };
+    }
 
     return () => {
       if (playerRef.current) {
@@ -114,9 +148,8 @@ const MusicPlayer = ({
       if (progressInterval.current) {
         window.clearInterval(progressInterval.current);
       }
-      document.body.removeChild(script);
     };
-  }, []);
+  }, [volume, songs, song?.id, onSelectSong, setIsPlaying, toast]);
 
   // Set up progress interval for smoother progress updates
   useEffect(() => {
@@ -135,13 +168,20 @@ const MusicPlayer = ({
     };
   }, [isPlaying, duration]);
 
-  // Handle playing a song
   useEffect(() => {
-    if (song && deviceId) {
-      playTrack(song.uri, deviceId);
-      setIsPlaying(true);
-    }
-  }, [song, deviceId]);
+    const startPlayback = async () => {
+      if (song && deviceId && isReady) {
+        try {
+          await playTrack(song.uri, deviceId);
+          setIsPlaying(true);
+        } catch (error) {
+          console.error('Playback error:', error);
+        }
+      }
+    };
+
+    startPlayback();
+  }, [song, deviceId, isReady, setIsPlaying, toast]);
 
   const togglePlayPause = () => {
     if (isPlaying) {
